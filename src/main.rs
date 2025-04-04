@@ -1,4 +1,7 @@
-use shardmap::{mutex::ShardMap as MutexShardMap, rwlock::ShardMap as RwLockShardMap};
+use shardmap::{
+    mutex::ShardMap as MutexShardMap, mutex_set::ShardSet as MutexShardSet,
+    rwlock::ShardMap as RwLockShardMap, rwlock_set::ShardSet as RwLockShardSet,
+};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Barrier;
@@ -65,10 +68,11 @@ async fn main() {
         num_threads * operations_per_thread
     );
 
+    // Benchmark ShardMap implementations
     for &shard_count in &shard_counts {
         for (workload_type, workload_name) in &workload_types {
             println!(
-                "\nBenchmarking ShardMap with {} shards ({})",
+                "\nBenchmarking MutexShardMap with {} shards ({})",
                 shard_count, workload_name
             );
             match workload_type {
@@ -100,7 +104,6 @@ async fn main() {
                         barrier.wait().await;
                         let start = Instant::now();
 
-                        // Pre-populate the map with some keys for read operations
                         if matches!(workload_type, WorkloadType::ReadHeavy | WorkloadType::Mixed) {
                             for i in 0..ops {
                                 let key = format!("key_{}_{}", thread_id, i);
@@ -108,7 +111,6 @@ async fn main() {
                             }
                         }
 
-                        // Perform the benchmark operations based on workload type
                         for i in 0..ops {
                             let key = format!("key_{}_{}", thread_id, i);
 
@@ -145,8 +147,12 @@ async fn main() {
         }
     }
 
+    // Benchmark RwLockShardMap
     for (workload_type, workload_name) in &workload_types {
-        println!("\nBenchmarking HashMap (RwLock) ({})", workload_name);
+        println!(
+            "\nBenchmarking RwLockShardMap with 64 shards ({})",
+            workload_name
+        );
         match workload_type {
             WorkloadType::WriteHeavy => println!(
                 "Operations: {} inserts + {} gets",
@@ -176,7 +182,6 @@ async fn main() {
                     barrier.wait().await;
                     let start = Instant::now();
 
-                    // Pre-populate the map with some keys for read operations
                     if matches!(workload_type, WorkloadType::ReadHeavy | WorkloadType::Mixed) {
                         for i in 0..ops {
                             let key = format!("key_{}_{}", thread_id, i);
@@ -184,7 +189,6 @@ async fn main() {
                         }
                     }
 
-                    // Perform the benchmark operations based on workload type
                     for i in 0..ops {
                         let key = format!("key_{}_{}", thread_id, i);
 
@@ -220,68 +224,137 @@ async fn main() {
         .await;
     }
 
+    // Benchmark ShardSet implementations
+    for &shard_count in &shard_counts {
+        for (workload_type, workload_name) in &workload_types {
+            println!(
+                "\nBenchmarking MutexShardSet with {} shards ({})",
+                shard_count, workload_name
+            );
+            match workload_type {
+                WorkloadType::WriteHeavy => println!(
+                    "Operations: {} inserts + {} contains",
+                    num_threads * operations_per_thread,
+                    num_threads * operations_per_thread
+                ),
+                WorkloadType::ReadHeavy => println!(
+                    "Operations: {} initial inserts + {} contains",
+                    num_threads * operations_per_thread,
+                    num_threads * operations_per_thread
+                ),
+                WorkloadType::Mixed => println!(
+                    "Operations: {} initial inserts + ~{} inserts + ~{} contains",
+                    num_threads * operations_per_thread,
+                    (num_threads * operations_per_thread) / 3,
+                    (num_threads * operations_per_thread * 2) / 3
+                ),
+            }
+            let shard_set = Arc::new(MutexShardSet::<String>::new(shard_count));
+            run_benchmark::<MutexShardSet<String>, (), _>(
+                Arc::clone(&shard_set),
+                num_threads,
+                operations_per_thread,
+                workload_type.clone(),
+                |set, barrier, thread_id, ops, workload_type| {
+                    tokio::spawn(async move {
+                        barrier.wait().await;
+                        let start = Instant::now();
+
+                        if matches!(workload_type, WorkloadType::ReadHeavy | WorkloadType::Mixed) {
+                            for i in 0..ops {
+                                let key = format!("key_{}_{}", thread_id, i);
+                                set.insert(key).await;
+                            }
+                        }
+
+                        for i in 0..ops {
+                            let key = format!("key_{}_{}", thread_id, i);
+
+                            match workload_type {
+                                WorkloadType::WriteHeavy => {
+                                    set.insert(key.clone()).await;
+                                    assert!(set.contains(&key).await);
+                                }
+                                WorkloadType::ReadHeavy => {
+                                    assert!(set.contains(&key).await);
+                                }
+                                WorkloadType::Mixed => {
+                                    if i % 3 == 0 {
+                                        set.insert(key.clone()).await;
+                                    } else {
+                                        assert!(set.contains(&key).await);
+                                    }
+                                }
+                            }
+                        }
+
+                        let duration = start.elapsed();
+                        println!("Thread {} completed in {:?}", thread_id, duration);
+                    })
+                },
+            )
+            .await;
+        }
+    }
+
+    // Benchmark RwLockShardSet
     for (workload_type, workload_name) in &workload_types {
-        println!("\nBenchmarking HashMap (Mutex) ({})", workload_name);
+        println!(
+            "\nBenchmarking RwLockShardSet with 64 shards ({})",
+            workload_name
+        );
         match workload_type {
             WorkloadType::WriteHeavy => println!(
-                "Operations: {} inserts + {} gets",
+                "Operations: {} inserts + {} contains",
                 num_threads * operations_per_thread,
                 num_threads * operations_per_thread
             ),
             WorkloadType::ReadHeavy => println!(
-                "Operations: {} initial inserts + {} gets",
+                "Operations: {} initial inserts + {} contains",
                 num_threads * operations_per_thread,
                 num_threads * operations_per_thread
             ),
             WorkloadType::Mixed => println!(
-                "Operations: {} initial inserts + ~{} inserts + ~{} gets",
+                "Operations: {} initial inserts + ~{} inserts + ~{} contains",
                 num_threads * operations_per_thread,
                 (num_threads * operations_per_thread) / 3,
                 (num_threads * operations_per_thread * 2) / 3
             ),
         }
-        let mutex_map = Arc::new(MutexShardMap::<String, i32>::new(64));
-        run_benchmark::<MutexShardMap<String, i32>, (), _>(
-            Arc::clone(&mutex_map),
+        let rwlock_set = Arc::new(RwLockShardSet::<String>::new(64));
+        run_benchmark::<RwLockShardSet<String>, (), _>(
+            Arc::clone(&rwlock_set),
             num_threads,
             operations_per_thread,
             workload_type.clone(),
-            |map, barrier, thread_id, ops, workload_type| {
+            |set, barrier, thread_id, ops, workload_type| {
                 tokio::spawn(async move {
                     barrier.wait().await;
                     let start = Instant::now();
 
-                    // Pre-populate the map with some keys for read operations
                     if matches!(workload_type, WorkloadType::ReadHeavy | WorkloadType::Mixed) {
                         for i in 0..ops {
                             let key = format!("key_{}_{}", thread_id, i);
-                            map.insert(key.clone(), i as i32).await;
+                            set.insert(key).await;
                         }
                     }
 
-                    // Perform the benchmark operations based on workload type
                     for i in 0..ops {
                         let key = format!("key_{}_{}", thread_id, i);
 
                         match workload_type {
                             WorkloadType::WriteHeavy => {
-                                map.insert(key.clone(), i as i32).await;
-                                if let Some(value) = map.get(&key).await {
-                                    assert_eq!(value, i as i32);
-                                }
+                                set.insert(key.clone()).await;
+                                assert!(set.contains(&key).await);
                             }
                             WorkloadType::ReadHeavy => {
-                                if let Some(value) = map.get(&key).await {
-                                    assert_eq!(value, i as i32);
-                                }
+                                assert!(set.contains(&key).await);
                             }
                             WorkloadType::Mixed => {
                                 if i % 3 == 0 {
-                                    map.insert(key.clone(), i as i32).await;
+                                    set.insert(key.clone()).await;
                                 } else {
-                                    if let Some(value) = map.get(&key).await {
-                                        assert_eq!(value, i as i32);
-                                    }
+                                    assert!(set.contains(&key).await);
                                 }
                             }
                         }
@@ -294,6 +367,4 @@ async fn main() {
         )
         .await;
     }
-
-    println!("\nBenchmarks completed!");
 }
