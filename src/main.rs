@@ -1,6 +1,6 @@
 use shardmap::{
-    mutex::ShardMap as MutexShardMap, mutex_set::ShardSet as MutexShardSet,
-    rwlock::ShardMap as RwLockShardMap, rwlock_set::ShardSet as RwLockShardSet,
+    mutex::{ShardMap as MutexShardMap, ShardSet as MutexShardSet},
+    rwlock::{ShardMap as RwLockShardMap, ShardSet as RwLockShardSet},
 };
 use std::sync::Arc;
 use std::time::Instant;
