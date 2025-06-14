@@ -117,22 +117,22 @@ async fn main() {
                             match workload_type {
                                 WorkloadType::WriteHeavy => {
                                     map.insert(key.clone(), i as i32).await;
-                                    if let Some(value) = map.get(&key).await {
-                                        assert_eq!(value, i as i32);
-                                    }
+                                    map.get(&key, |value| {
+                                        assert_eq!(*value, i as i32);
+                                    }).await;
                                 }
                                 WorkloadType::ReadHeavy => {
-                                    if let Some(value) = map.get(&key).await {
-                                        assert_eq!(value, i as i32);
-                                    }
+                                    map.get(&key, |value| {
+                                        assert_eq!(*value, i as i32);
+                                    }).await;
                                 }
                                 WorkloadType::Mixed => {
                                     if i % 3 == 0 {
                                         map.insert(key.clone(), i as i32).await;
                                     } else {
-                                        if let Some(value) = map.get(&key).await {
-                                            assert_eq!(value, i as i32);
-                                        }
+                                        map.get(&key, |value| {
+                                            assert_eq!(*value, i as i32);
+                                        }).await;
                                     }
                                 }
                             }
@@ -195,22 +195,22 @@ async fn main() {
                         match workload_type {
                             WorkloadType::WriteHeavy => {
                                 map.insert(key.clone(), i as i32).await;
-                                if let Some(value) = map.get(&key).await {
-                                    assert_eq!(value, i as i32);
-                                }
+                                map.get(&key, |value| {
+                                    assert_eq!(*value, i as i32);
+                                }).await;
                             }
                             WorkloadType::ReadHeavy => {
-                                if let Some(value) = map.get(&key).await {
-                                    assert_eq!(value, i as i32);
-                                }
+                                map.get(&key, |value| {
+                                    assert_eq!(*value, i as i32);
+                                }).await;
                             }
                             WorkloadType::Mixed => {
                                 if i % 3 == 0 {
                                     map.insert(key.clone(), i as i32).await;
                                 } else {
-                                    if let Some(value) = map.get(&key).await {
-                                        assert_eq!(value, i as i32);
-                                    }
+                                    map.get(&key, |value| {
+                                        assert_eq!(*value, i as i32);
+                                    }).await;
                                 }
                             }
                         }

@@ -35,10 +35,62 @@ where
         shard.insert(key, value)
     }
 
-    pub async fn get(&self, key: &K) -> Option<V> {
+    pub async fn get<F>(&self, key: &K, f: F) -> bool
+    where
+        F: FnOnce(&V),
+    {
         let shard_index = self.get_shard_index(key);
-        let shard = self.shards[shard_index].lock().await;
-        shard.get(key).cloned()
+        let guard = self.shards[shard_index].lock().await;
+        if let Some(value) = guard.get(key) {
+            f(value);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn map<F, U, R>(&self, key: &K, f: F) -> Option<R>
+    where
+        F: FnOnce(&V) -> U,
+        U: Into<Option<R>>,
+    {
+        let shard_index = self.get_shard_index(key);
+        let guard = self.shards[shard_index].lock().await;
+        guard.get(key).map(f).and_then(|u| u.into())
+    }
+
+    pub async fn get_cloned(&self, key: &K) -> Option<V> {
+        let shard_index = self.get_shard_index(key);
+        let guard = self.shards[shard_index].lock().await;
+        guard.get(key).cloned()
+    }
+
+    pub async fn get_mut<F>(&self, key: &K, f: F) -> bool
+    where
+        F: FnOnce(&mut V),
+    {
+        let shard_index = self.get_shard_index(key);
+        let mut guard = self.shards[shard_index].lock().await;
+        if let Some(value) = guard.get_mut(key) {
+            f(value);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn get_mut_then_clone<F>(&self, key: &K, f: F) -> Option<V>
+    where
+        F: FnOnce(&mut V),
+    {
+        let shard_index = self.get_shard_index(key);
+        let mut guard = self.shards[shard_index].lock().await;
+        if let Some(value) = guard.get_mut(key) {
+            f(value);
+            Some(value.clone())
+        } else {
+            None
+        }
     }
 
     pub async fn remove(&self, key: &K) -> Option<V> {
