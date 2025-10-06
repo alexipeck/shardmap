@@ -12,8 +12,7 @@ pub struct ShardMap<K, V> {
 
 impl<K, V> ShardMap<K, V>
 where
-    K: Hash + Eq + Clone,
-    V: Clone,
+    K: Hash + Eq,
 {
     pub fn new(num_shards: usize) -> Self {
         let mut shards = Vec::with_capacity(num_shards);
@@ -59,12 +58,6 @@ where
         guard.get(key).map(f).and_then(|u| u.into())
     }
 
-    pub async fn get_cloned(&self, key: &K) -> Option<V> {
-        let shard_index = self.get_shard_index(key);
-        let guard = self.shards[shard_index].read().await;
-        guard.get(key).cloned()
-    }
-
     pub async fn get_mut<F>(&self, key: &K, f: F) -> bool
     where
         F: FnOnce(&mut V),
@@ -79,24 +72,26 @@ where
         }
     }
 
-    pub async fn get_mut_then_clone<F>(&self, key: &K, f: F) -> Option<V>
-    where
-        F: FnOnce(&mut V),
-    {
-        let shard_index = self.get_shard_index(key);
-        let mut guard = self.shards[shard_index].write().await;
-        if let Some(value) = guard.get_mut(key) {
-            f(value);
-            Some(value.clone())
-        } else {
-            None
-        }
-    }
-
     pub async fn remove(&self, key: &K) -> Option<V> {
         let shard_index = self.get_shard_index(key);
         let mut shard = self.shards[shard_index].write().await;
         shard.remove(key)
+    }
+
+    pub async fn remove_if<F>(&self, key: &K, f: F) -> Option<V>
+    where
+        F: FnOnce(&V) -> bool,
+    {
+        let shard_index = self.get_shard_index(key);
+        let mut shard_guard = self.shards[shard_index].write().await;
+        if match shard_guard.get(key) {
+            Some(v) => f(v),
+            None => false,
+        } {
+            shard_guard.remove(key)
+        } else {
+            None
+        }
     }
 
     pub async fn contains_key(&self, key: &K) -> bool {
@@ -113,7 +108,7 @@ pub struct ShardSet<K> {
 
 impl<K> ShardSet<K>
 where
-    K: Hash + Eq + Clone,
+    K: Hash + Eq,
 {
     pub fn new(num_shards: usize) -> Self {
         let mut shards = Vec::with_capacity(num_shards);
